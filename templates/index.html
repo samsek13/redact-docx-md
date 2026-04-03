@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件脱敏工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+        }
+        .section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .section h2 {
+            color: #555;
+            margin-top: 0;
+        }
+        label {
+            display: block;
+            margin: 10px 0 5px;
+            font-weight: bold;
+        }
+        input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            padding: 8px;
+            margin-bottom: 10px;
+            resize: vertical;
+        }
+        .checkbox-group {
+            margin: 10px 0;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button.secondary {
+            background: #2196F3;
+        }
+        button.secondary:hover {
+            background: #0b7dda;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 10px;
+            background: #e8f5e9;
+            border-radius: 3px;
+        }
+        .result.error {
+            background: #ffebee;
+        }
+        .result-item {
+            margin: 5px 0;
+        }
+        .download-link {
+            color: #1976D2;
+            text-decoration: none;
+            margin-right: 15px;
+        }
+        .download-link:hover {
+            text-decoration: underline;
+        }
+        .info {
+            color: #666;
+            font-size: 12px;
+            margin: 5px 0;
+        }
+        .supported {
+            background: #e3f2fd;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>文件脱敏工具</h1>
+
+    <p class="supported">支持格式: {{SUPPORTED_FORMATS}}</p>
+
+    <!-- 脱敏区域 -->
+    <div class="section">
+        <h2>脱敏 (Redact)</h2>
+        <p class="info">将敏感词替换为占位符 [REDACTED_N]</p>
+
+        <form id="redact-form" enctype="multipart/form-data">
+            <label for="files">选择文件（最多10个）:</label>
+            <input type="file" id="files" name="files" multiple accept=".txt,.md,.docx">
+
+            <label for="words">敏感词列表（一行一个）:</label>
+            <textarea id="words" name="words" placeholder="张三&#10;李四&#10;身份证号"></textarea>
+
+            <div class="checkbox-group">
+                <input type="checkbox" id="use_default" name="use_default">
+                <label for="use_default" style="display:inline; font-weight:normal;">使用默认词库 (words.txt)</label>
+            </div>
+
+            <button type="submit">执行脱敏</button>
+        </form>
+
+        <div id="redact-result" class="result" style="display:none;"></div>
+    </div>
+
+    <!-- 恢复区域 -->
+    <div class="section">
+        <h2>恢复 (De-redact)</h2>
+        <p class="info">根据映射文件还原脱敏内容</p>
+
+        <form id="deredact-form" enctype="multipart/form-data">
+            <label for="redacted_file">脱敏文件:</label>
+            <input type="file" id="redacted_file" name="redacted_file" accept=".txt,.md,.docx">
+
+            <label for="mapping_file">映射文件:</label>
+            <input type="file" id="mapping_file" name="mapping_file" accept=".json,.mapping.json">
+
+            <button type="submit" class="secondary">执行恢复</button>
+        </form>
+
+        <div id="deredact-result" class="result" style="display:none;"></div>
+    </div>
+
+    <!-- 清理按钮 -->
+    <div class="section">
+        <button onclick="clearTemp()" class="secondary" style="background:#ff5722;">清理临时文件</button>
+    </div>
+
+    <script>
+        // 脱敏表单提交
+        document.getElementById('redact-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const resultDiv = document.getElementById('redact-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '处理中...';
+            resultDiv.classList.remove('error');
+
+            const formData = new FormData(this);
+            const useDefault = document.getElementById('use_default').checked;
+            formData.set('use_default', useDefault ? 'true' : 'false');
+
+            try {
+                const response = await fetch('/redact', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (data.error) {
+                    resultDiv.classList.add('error');
+                    resultDiv.innerHTML = data.error;
+                } else {
+                    let html = '<strong>处理完成:</strong><br>';
+                    data.results.forEach(item => {
+                        if (item.error) {
+                            html += `<div class="result-item" style="color:red;">${item.filename}: ${item.error}</div>`;
+                        } else {
+                            html += `<div class="result-item">${item.filename}: `;
+                            html += `<a class="download-link" href="/download/${encodeURIComponent(item.output)}">下载脱敏文件</a>`;
+                            html += `<a class="download-link" href="/download/${encodeURIComponent(item.mapping)}">下载映射文件</a></div>`;
+                        }
+                    });
+                    resultDiv.innerHTML = html;
+                }
+            } catch (err) {
+                resultDiv.classList.add('error');
+                resultDiv.innerHTML = '请求失败: ' + err.message;
+            }
+        });
+
+        // 恢复表单提交
+        document.getElementById('deredact-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const resultDiv = document.getElementById('deredact-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '处理中...';
+            resultDiv.classList.remove('error');
+
+            const formData = new FormData(this);
+
+            try {
+                const response = await fetch('/deredact', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (data.error) {
+                    resultDiv.classList.add('error');
+                    resultDiv.innerHTML = data.error;
+                } else {
+                    resultDiv.innerHTML = `<strong>恢复完成:</strong> <a class="download-link" href="/download/${encodeURIComponent(data.output)}">下载恢复文件</a>`;
+                }
+            } catch (err) {
+                resultDiv.classList.add('error');
+                resultDiv.innerHTML = '请求失败: ' + err.message;
+            }
+        });
+
+        // 清理临时文件
+        async function clearTemp() {
+            try {
+                const response = await fetch('/clear');
+                const data = await response.json();
+                alert(data.message);
+                document.getElementById('redact-result').style.display = 'none';
+                document.getElementById('deredact-result').style.display = 'none';
+            } catch (err) {
+                alert('清理失败: ' + err.message);
+            }
+        }
+    </script>
+</body>
+</html>
