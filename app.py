@@ -89,18 +89,27 @@ def parse_multipart(content_type: str, body: bytes) -> dict:
         if filename_match:
             # 文件字段
             filename = filename_match.group(1)
-            result[field_name] = {
+            entry = {
                 'filename': filename,
                 'data': content,
                 'type': 'file'
             }
         else:
             # 文本字段
-            result[field_name] = {
+            entry = {
                 'filename': None,
                 'data': content.decode('utf-8', errors='ignore'),
                 'type': 'text'
             }
+
+        # 支持同名字段（如多文件上传）
+        if field_name in result:
+            if isinstance(result[field_name], list):
+                result[field_name].append(entry)
+            else:
+                result[field_name] = [result[field_name], entry]
+        else:
+            result[field_name] = entry
 
     return result
 

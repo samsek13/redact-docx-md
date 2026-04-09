@@ -114,12 +114,13 @@
             <label for="files">选择文件（最多10个）:</label>
             <input type="file" id="files" name="files" multiple accept=".txt,.md,.docx">
 
-            <label for="words">敏感词列表（一行一个）:</label>
+            <label for="words">手动输入敏感词（一行一个）:</label>
             <textarea id="words" name="words" placeholder="张三&#10;李四&#10;身份证号"></textarea>
+            <p class="info">手动输入的敏感词会与默认词库叠加使用</p>
 
             <div class="checkbox-group">
                 <input type="checkbox" id="use_default" name="use_default">
-                <label for="use_default" style="display:inline; font-weight:normal;">使用默认词库 (words.txt)</label>
+                <label for="use_default" style="display:inline; font-weight:normal;">同时使用默认词库 (words.txt)</label>
             </div>
 
             <button type="submit">执行脱敏</button>
