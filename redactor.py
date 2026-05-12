@@ -33,7 +33,29 @@ class Redactor:
         self.counter = 0
         self.mapping = {}
 
-    def redact_text(self, text: str, words: List[str]) -> str:
+    @staticmethod
+    def _build_pattern(word: str, markdown_aware: bool = False) -> str:
+        """构建正则模式
+
+        当 markdown_aware=True 时，允许字符间出现 Markdown 格式字符
+        （* _ ~ `），以处理 **minte****gral** 等格式拆分敏感词的情况。
+        """
+        if not markdown_aware:
+            return re.escape(word)
+
+        parts = re.split(r'\s+', word.strip())
+        escaped_parts = [p for p in parts if p]
+        char_gap = r'[\s*_~`]*'
+        word_gap = r'[\s*_~`]+'
+
+        def escape_with_gap(w):
+            return char_gap.join(re.escape(c) for c in w)
+
+        if len(escaped_parts) <= 1:
+            return escape_with_gap(escaped_parts[0])
+        return word_gap.join(escape_with_gap(p) for p in escaped_parts)
+
+    def redact_text(self, text: str, words: List[str], markdown_aware: bool = False) -> str:
         """
         对文本进行脱敏处理
 
@@ -72,8 +94,7 @@ class Redactor:
         # 为每个词创建正则模式并替换
         result = text
         for word in words_sorted:
-            # 使用 re.escape 处理特殊字符，确保精确匹配
-            pattern = re.escape(word)
+            pattern = self._build_pattern(word, markdown_aware=markdown_aware)
             result = re.sub(pattern, replace_match, result, flags=re.IGNORECASE)
 
         return result
@@ -122,12 +143,14 @@ def redact_txt(file_path: Path, words: List[str], output_dir: Path = None) -> Tu
 
     # 脱敏处理
     redactor = Redactor()
-    redacted_text = redactor.redact_text(text, words)
+    md_aware = file_path.suffix.lower() == '.md'
+    redacted_text = redactor.redact_text(text, words, markdown_aware=md_aware)
 
-    # 生成输出文件名
+    # 生成输出文件名（stem 也做脱敏）
     stem = file_path.stem
-    output_file = output_dir / f"{stem}_redacted.txt"
-    mapping_file = output_dir / f"{stem}_redacted.mapping.json"
+    redacted_stem = redactor.redact_text(stem, words)
+    output_file = output_dir / f"{redacted_stem}_redacted.txt"
+    mapping_file = output_dir / f"{redacted_stem}_redacted.mapping.json"
 
     # 写入脱敏文件
     output_file.write_text(redacted_text, encoding='utf-8')
@@ -166,8 +189,9 @@ def deredact_txt(file_path: Path, mapping_file: Path, output_dir: Path = None) -
     redactor = Redactor()
     restored_text = redactor.deredact_text(text, mapping_data['mappings'])
 
-    # 生成输出文件名
-    stem = file_path.stem.replace('_redacted', '')
+    # 生成输出文件名（使用映射中保存的原始文件名）
+    original_filename = mapping_data.get('original_filename', '')
+    stem = Path(original_filename).stem if original_filename else file_path.stem.replace('_redacted', '')
     output_file = output_dir / f"{stem}_restored.txt"
 
     # 写入恢复文件
@@ -423,10 +447,11 @@ def redact_docx(file_path: Path, words: List[str], output_dir: Path = None) -> T
     # 脱敏批注、脚注等附加 XML 部件
     _redact_comments(redactor, doc, words)
 
-    # 生成输出文件名
+    # 生成输出文件名（stem 也做脱敏）
     stem = file_path.stem
-    output_file = output_dir / f"{stem}_redacted.docx"
-    mapping_file = output_dir / f"{stem}_redacted.mapping.json"
+    redacted_stem = redactor.redact_text(stem, words)
+    output_file = output_dir / f"{redacted_stem}_redacted.docx"
+    mapping_file = output_dir / f"{redacted_stem}_redacted.mapping.json"
 
     # 保存文档
     doc.save(str(output_file))
@@ -475,8 +500,9 @@ def deredact_docx(file_path: Path, mapping_file: Path, output_dir: Path = None) 
     # 恢复批注、脚注等附加 XML 部件
     _deredact_comments(redactor, doc, mapping)
 
-    # 生成输出文件名
-    stem = file_path.stem.replace('_redacted', '')
+    # 生成输出文件名（使用映射中保存的原始文件名）
+    original_filename = mapping_data.get('original_filename', '')
+    stem = Path(original_filename).stem if original_filename else file_path.stem.replace('_redacted', '')
     output_file = output_dir / f"{stem}_restored.docx"
 
     # 保存文档
